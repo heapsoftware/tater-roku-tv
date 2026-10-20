@@ -173,9 +173,10 @@ Install whatever you use in the same environment Tater runs in, e.g.
 - **ECP client** — `POST http://<ip>:8060/keypress/<key>` for keys,
   `POST http://<ip>:8060/launch/837?contentId=<videoId>&mediaType=video` to
   launch YouTube.
-- **Intent routing** — the planning model calls this tool with a `command`
-  (and `query`/`steps`/`input_number`/`tv` as needed); the verba maps it to an
-  ECP action on the resolved TV.
+- **Intent routing** — the planning model passes the user's complete request
+  in `query` (natural-language contract); the verba works out the action,
+  volume steps, HDMI input, and TV target, then maps it to an ECP action on
+  the resolved TV.
 - **Settings** — stored in Tater's Redis under `verba_settings:roku_tv`; the
   TV profiles are kept as a compact JSON list. The satellite dropdown is built
   from Tater's satellite registry (`tater:voice:satellites:registry:v1`).

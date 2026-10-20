@@ -12,6 +12,11 @@ Capabilities
 * Launches a YouTube video from a natural-language search using one of five
   selectable resolvers (see ``youtube_resolver_method``).
 
+The tool speaks the natural-language contract: Hydra passes the user's
+complete request in ``query`` and this module interprets the action, volume
+steps, HDMI input, and which TV to target (deterministic rules first, a
+validated ``llm_client`` pick from a fixed action set as fallback).
+
 Per-satellite (SAT) routing
 ---------------------------
 Roku TVs are configured as **profiles** (name + IP + linked satellite). When a
@@ -399,6 +404,184 @@ def _parse_steps(raw: Any) -> int:
     return max(1, min(n, _MAX_VOLUME_STEPS))
 
 
+# ---------------------------------------------------------------------------
+# Natural-language request parsing
+# ---------------------------------------------------------------------------
+# The planning model passes the user's complete request in ``query``; this
+# module interprets it. Deterministic rules first, an internal llm_client
+# pick from a validated action set as fallback (see RokuTvVerba).
+
+_TV_WORD = r"(?:tv|television|telly|tube)"
+# "on the great room tv" / "the kitchen television" -> captures the TV name.
+_TV_NAME_RE = re.compile(
+    r"\b(?:on|at|in)\s+(?:the\s+)?([a-z0-9][a-z0-9' .-]{0,39}?)\s+" + _TV_WORD + r"\b",
+    re.IGNORECASE,
+)
+_TV_NAME_RE2 = re.compile(
+    r"\bthe\s+([a-z0-9][a-z0-9' .-]{0,39}?)\s+" + _TV_WORD + r"\b",
+    re.IGNORECASE,
+)
+# The full set of actions the verba can perform; llm output is validated
+# against this set and anything else is discarded.
+_VALID_COMMANDS = frozenset(
+    set(_COMMAND_KEY_MAP) | {"volume_up", "volume_down", "switch_input", "youtube"}
+)
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "ten": 10,
+}
+# "play it" / "play something" stay a plain playback toggle, not a search.
+# The verbs are listed too: "play the tv" leaves just the verb as "leftover".
+_NON_CONTENT = frozenset({
+    "it", "that", "this", "something", "anything",
+    "play", "pause", "stop", "mute", "unmute", "resume", "continue", "unpause",
+})
+_QUESTION_WORDS = {
+    "what", "who", "where", "when", "why", "how", "is", "are",
+    "can", "could", "would", "do", "does", "should",
+}
+
+
+def _squash(value: Any) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _is_question(text: str) -> bool:
+    first = _squash(text).split(" ", 1)[0].lower()
+    return first in _QUESTION_WORDS
+
+
+def _tv_name_from(text: str) -> str:
+    """Extract a spoken TV name: 'the kitchen TV' -> 'kitchen' ('' if none)."""
+    low = text.lower()
+    for regex in (_TV_NAME_RE, _TV_NAME_RE2):
+        match = regex.search(low)
+        if match:
+            name = _squash(match.group(1))
+            return re.sub(r"^(?:the|on|at|in)\s+", "", name)
+    return ""
+
+
+def _strip_tv_mentions(text: str) -> str:
+    """Drop TV-target phrases ('on the kitchen tv', 'the telly') from a phrase."""
+    out = re.sub(
+        r"\b(?:on|at|in)\s+(?:the\s+)?[a-z0-9][a-z0-9' .-]{0,39}?\s+" + _TV_WORD + r"\b",
+        " ", text, flags=re.IGNORECASE,
+    )
+    out = re.sub(r"\bthe\s+" + _TV_WORD + r"\b", " ", out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(?:on|at|in)\s+" + _TV_WORD + r"\b", " ", out, flags=re.IGNORECASE)
+    # Leading \b so "youtube" is never mistaken for "tube".
+    return re.sub(r"\b" + _TV_WORD + r"\b", " ", out, flags=re.IGNORECASE)
+
+
+def _youtube_query(text: str) -> str:
+    """Pull the search phrase out of e.g. 'play X on youtube on the kitchen TV'."""
+    out = re.sub(r"\byou\s?tube\b", " ", _strip_tv_mentions(text), flags=re.IGNORECASE)
+    out = _squash(out)
+    out = re.sub(
+        r"^(?:please\s+)?(?:play|put on|start|show|load|search(?:\s+for)?|look up|"
+        r"resume|continue|unpause)\s+",
+        "", out, flags=re.IGNORECASE,
+    )
+    return _squash(out).strip(" .,!?")
+
+
+def _parse_request(text: Any) -> Dict[str, str]:
+    """Interpret the user's complete natural-language request.
+
+    Returns ``{command, query, direction, steps, input_number, tv_name}`` where
+    ``command`` is one of ``_VALID_COMMANDS`` — or empty when no rule matched,
+    in which case the caller may fall back to ``llm_client``.
+    """
+    raw = _squash(text)
+    if not raw:
+        return {}
+    low = raw.lower()
+    out = {
+        "command": "",
+        "query": "",
+        "direction": "",
+        "steps": "",
+        "input_number": "",
+        "tv_name": _tv_name_from(raw),
+    }
+
+    # YouTube is named outright.
+    if re.search(r"\byou\s?tube\b", low):
+        out["command"] = "youtube"
+        out["query"] = _youtube_query(raw)
+        return out
+
+    # Power (but "turn off the volume/sound" means mute, not power off).
+    if re.search(
+        r"\b(?:power off|switch off|shut ?down|turn off|"
+        r"turn (?:it|the " + _TV_WORD + r") off)\b",
+        low,
+    ):
+        out["command"] = "mute" if re.search(r"\bvolume\b|\bsound\b", low) else "power_off"
+    elif re.search(
+        r"\b(?:power on|switch on|wake\b|turn on|"
+        r"turn (?:it|the " + _TV_WORD + r") on)\b",
+        low,
+    ):
+        out["command"] = "unmute" if re.search(r"\bsound\b", low) else "power_on"
+    elif re.search(r"\bun[- ]?mute\b", low):
+        out["command"] = "unmute"
+    elif re.search(r"\bmute\b", low):
+        out["command"] = "mute"
+    elif re.search(r"\bvolume\b|\blouder\b|\bquieter\b|\bsofter\b", low):
+        if re.search(r"\b(?:up|raise|increase|higher|louder)\b", low):
+            out["command"] = "volume_up"
+        elif re.search(r"\b(?:down|lower|decrease|reduce|quieter|softer)\b", low):
+            out["command"] = "volume_down"
+    elif re.search(r"\bturn it up\b", low):
+        out["command"] = "volume_up"
+    elif re.search(r"\bturn it down\b", low):
+        out["command"] = "volume_down"
+    elif re.search(r"\b(?:hdmi|input)\b", low):
+        out["command"] = "switch_input"
+        match = re.search(
+            r"\b(?:hdmi|input)\s*(?:to\s+|on\s+)?(\d{1,2}|one|two|three|four|five|six)\b",
+            low,
+        )
+        if match:
+            out["input_number"] = str(_NUMBER_WORDS.get(match.group(1), match.group(1)))
+    elif re.search(r"\bhome\b", low):
+        out["command"] = "home"
+    elif re.search(r"\bback\b", low):
+        out["command"] = "back"
+    elif re.search(r"\bunpause\b|\bresum(?:e|ed)\b|\bcontinue\b", low):
+        out["command"] = "play"
+    elif re.search(r"\bpause\b", low):
+        out["command"] = "pause"
+    elif re.search(r"\bstop\b", low):
+        out["command"] = "stop"
+    elif re.search(r"\bplay\b", low):
+        out["command"] = "play"
+
+    if out["command"] in ("volume_up", "volume_down"):
+        out["direction"] = "up" if out["command"] == "volume_up" else "down"
+        match = re.search(r"\b(\d{1,2})\b", low)
+        if match:
+            out["steps"] = match.group(1)
+        else:
+            match = re.search(
+                r"\b(?:by|of)\s+(one|two|three|four|five|six|seven|eight|ten)\b", low
+            )
+            if match:
+                out["steps"] = str(_NUMBER_WORDS[match.group(1)])
+
+    # On a Roku, "play X" with leftover content words means YouTube (e.g.
+    # "play some bossa nova on the tv"); "play the tv" / "play it" stay plain.
+    # Anything that matched no rule at all is left to llm_client / the ask.
+    if out["command"] == "play" and not _is_question(raw):
+        leftover = _youtube_query(raw)
+        if leftover and leftover.lower() not in _NON_CONTENT and not _is_question(leftover):
+            out["command"] = "youtube"
+            out["query"] = leftover
+    return out
+
+
 def _load_settings() -> Dict[str, str]:
     try:
         return get_verba_settings(SETTINGS_CATEGORY) or {}
@@ -413,7 +596,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.4"
+    version = "1.0.5"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
@@ -437,37 +620,28 @@ class RokuTvVerba(ToolVerba):
         "volume on tv",
     ]
     tags = ["tv", "roku", "ecp", "media", "power", "volume"]
-    usage = '{"function": "roku_tv", "arguments": {"command": "power_on"}}'
+    usage = '{"function": "roku_tv", "arguments": {"query": "power on the TV"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
     verba_dec = (
-        "Controls Roku TVs over the network (ECP) and launches YouTube, routing each "
-        "request to the TV linked to the speaking satellite."
+        "Control Roku TVs by voice: power, play/pause, volume, mute, HDMI input, and "
+        "YouTube, routed to the TV linked to the speaking satellite."
     )
-    description = (
-        "Voice control for Roku TVs using the External Control Protocol (port 8060): "
-        "playback, mute, volume, HDMI input, power, and navigation, plus a YouTube "
-        "deep-linker with five selectable resolvers. Each TV profile can be linked to a "
-        "satellite so a spoken request only reaches that TV."
-    )
+    description = verba_dec
     # NOTE: the planning LLM only sees the first ~77 characters of when_to_use
     # plus the single `usage` example, so the lead sentence must cover the main uses.
     when_to_use = (
-        "Turn a Roku TV on or off, play/pause, volume, mute, HDMI input, or YouTube. "
-        "Use for 'turn on the TV', 'pause the TV', 'turn the volume up', 'switch to "
-        "HDMI 2', 'turn off the bedroom TV', or 'play lofi radio on YouTube'. Set tv "
-        "to a configured TV name to target it; otherwise the speaking satellite's "
-        "linked TV is used."
+        "Roku TV: power, play/pause, volume, mute, HDMI input, or YouTube. Use for "
+        "'turn on the TV', 'pause the TV', 'volume up on the kitchen TV', 'switch to "
+        "HDMI 2', 'turn off the bedroom TV', or 'play lofi radio on YouTube'."
     )
     how_to_use = (
-        "Pass command (play/pause/stop/mute/unmute/home/back/power_on/power_off/"
-        "volume_up/volume_down/switch_input/youtube). For YouTube use command=youtube with "
-        "query. volume_up/volume_down take optional steps; switch_input takes input_number. "
-        "Optionally set tv to a configured TV name; if omitted the TV is chosen from the "
-        "requesting satellite's linked profile or the configured fallback mode. The user may "
-        "also call it 'the television', 'the tube', or 'the telly' — all mean this Roku TV."
+        "Pass the user's complete request in query, in their words (e.g. 'turn the "
+        "volume up 2 on the great room TV'). This verba works out the action, volume "
+        "steps, HDMI input, and which TV to target. If no TV is named, it is chosen "
+        "from the speaking satellite's linked profile or the configured fallback mode."
     )
-    common_needs = ["command"]
+    common_needs = ["query"]
     example_calls = [
         "Pause the TV",
         "Play the TV",
@@ -509,51 +683,20 @@ class RokuTvVerba(ToolVerba):
             "show_when": {"key": "youtube_resolver_method", "equals": "OFFICIAL_API"},
         },
     }
+    # Natural-language contract: one field, the user's complete request.
+    # The verba interprets it internally (see _parse_request).
     argument_schema = {
         "type": "object",
         "properties": {
-            "command": {
-                "type": "string",
-                "enum": [
-                    "play", "pause", "stop", "mute", "unmute", "home", "back",
-                    "power_on", "power_off", "volume_up", "volume_down",
-                    "switch_input", "youtube",
-                ],
-                "description": (
-                    "The action to perform (power_on/power_off turn the TV on/off). For "
-                    "'play X on YouTube' use command=youtube with query. volume_up/"
-                    "volume_down adjust volume; switch_input changes HDMI input."
-                ),
-            },
             "query": {
                 "type": "string",
-                "description": "For command=youtube: what to search on YouTube, in the user's words (e.g. 'lofi hip hop radio').",
-            },
-            "direction": {
-                "type": "string",
-                "enum": ["up", "down"],
-                "description": "For volume commands: up or down (usually implied by the command).",
-            },
-            "steps": {
-                "type": "string",
-                "description": "For volume commands: how many steps to change by (default 5).",
-            },
-            "input_number": {
-                "type": "string",
-                "description": "For switch_input: the HDMI input number to switch to (e.g. '1').",
-            },
-            "tv": {
-                "type": "string",
                 "description": (
-                    "Optional: which configured TV to target, by its name or room "
-                    "(e.g. 'Great Room' or 'kitchen'). Do NOT put the device word here — "
-                    "'TV', 'television', 'tube', and 'telly' all just mean the TV. If omitted, "
-                    "the TV is chosen from the speaking satellite's linked profile or the "
-                    "configured fallback mode."
+                    "The user's complete request, in their words "
+                    "(e.g. 'turn the volume up on the kitchen TV')."
                 ),
-            },
+            }
         },
-        "required": ["command"],
+        "required": ["query"],
     }
 
     # -- WebUI settings hooks ------------------------------------------------
@@ -820,6 +963,44 @@ class RokuTvVerba(ToolVerba):
             say_hint=f"Ask which TV to control by name. The configured TVs are: {names}.",
         )
 
+    async def _llm_pick_command(self, request: str, llm_client: Any) -> Dict[str, str]:
+        """Fallback when the deterministic rules don't match: ask the model to
+        pick from the validated action set. Any unvalidated output is dropped."""
+        if llm_client is None or not _squash(request):
+            return {}
+        prompt = (
+            "Route this Roku TV voice request to exactly one action from: "
+            + ", ".join(sorted(_VALID_COMMANDS))
+            + ". Reply with ONLY a JSON object using fields command, query, steps, "
+            'input_number, tv (include only what applies). Example: {"command": '
+            '"volume_up", "steps": "2", "tv": "kitchen"}. Request: "' + request + '"'
+        )
+        try:
+            resp = await llm_client.chat(messages=[{"role": "system", "content": prompt}])
+            content = str(((resp or {}).get("message") or {}).get("content") or "")
+            start, end = content.find("{"), content.rfind("}")
+            if start == -1 or end <= start:
+                return {}
+            data = json.loads(content[start : end + 1])
+        except Exception:  # noqa: BLE001 - fall through to "ask the user"
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        command = _squash(data.get("command")).lower()
+        if command not in _VALID_COMMANDS:
+            return {}
+        out = {
+            "command": command,
+            "query": _squash(data.get("query")),
+            "direction": _squash(data.get("direction")).lower(),
+            "steps": _squash(data.get("steps")),
+            "input_number": _squash(data.get("input_number")),
+            "tv_name": _squash(data.get("tv")),
+        }
+        if out["command"] in ("volume_up", "volume_down"):
+            out["direction"] = "up" if out["command"] == "volume_up" else "down"
+        return out
+
     async def _run(self, args, request_text="", llm_client=None, origin=None) -> Dict[str, Any]:
         args = args if isinstance(args, dict) else {}
         if not isinstance(origin, dict):
@@ -839,14 +1020,41 @@ class RokuTvVerba(ToolVerba):
         input_number = _text(args.get("input_number"))
         tv_name = _text(args.get("tv"))
 
-        if not command and query:
-            command = "youtube"
-        if not command:
-            return action_failure(
-                code="missing_command",
-                message="No Roku TV action was specified.",
-                say_hint="Ask what to do with the TV (e.g. pause, volume up, switch input, play something on YouTube).",
-            )
+        if command not in _VALID_COMMANDS:
+            # Natural-language contract: the model passes the user's complete
+            # request in `query` (or `request`); this verba interprets it. A
+            # legacy structured `command` from an older prompt still works.
+            request = query or _text(args.get("request")) or _text(request_text)
+            if not request:
+                return action_failure(
+                    code="missing_request",
+                    message="No request was provided for the Roku TV.",
+                    needs=["Say what to do with the TV, e.g. 'pause the TV'."],
+                    say_hint="Ask what to do with the TV.",
+                )
+            parsed = _parse_request(request)
+            if not parsed.get("command"):
+                parsed = await self._llm_pick_command(request, llm_client)
+            if not parsed.get("command"):
+                return action_failure(
+                    code="unknown_command",
+                    message="I couldn't work out what to do with the TV from that request.",
+                    needs=[
+                        "Try: power on/off, play/pause, mute, volume up or down, "
+                        "switch to HDMI N, go home, go back, or play something on YouTube."
+                    ],
+                    say_hint=(
+                        "Ask what to do with the TV: power, play/pause, volume, mute, "
+                        "HDMI input, home/back, or play something on YouTube."
+                    ),
+                )
+            command = parsed["command"]
+            query = parsed.get("query") or query
+            direction = parsed.get("direction") or direction
+            if parsed.get("steps"):
+                steps_raw = parsed["steps"]
+            input_number = parsed.get("input_number") or input_number
+            tv_name = parsed.get("tv_name") or tv_name
 
         target, failure = self._resolve_target(profiles, origin, tv_name, default_tv, fallback_mode)
         if failure is not None:
