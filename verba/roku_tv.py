@@ -413,7 +413,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.1"
+    version = "1.0.3"
     usage = '{"function": "roku_tv", "arguments": {"command": "power_on"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
