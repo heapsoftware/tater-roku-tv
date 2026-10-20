@@ -75,6 +75,16 @@ curl -s "http://<TV_IP>:8060/query/device-info" | head -5
 If that returns device info XML, ECP is enabled and the verba will work with
 that IP.
 
+### Turning the TV *on* remotely (Fast Start)
+
+The ECP `PowerOn` keypress can only wake a TV that is still reachable on the
+network while in standby. On the **TV itself**, go to
+**Settings → System → Power** and switch **Fast Start** **On**. With Fast
+Start off the TV powers down completely (and drops off the network), so
+"turn on the TV" will report the TV as unreachable until you switch it on
+with the remote. Everything else (playback, volume, inputs) works while the
+TV is on, with or without Fast Start.
+
 ## Configuration
 
 Open the Roku TV verba's **settings** (from the Verbas page). You'll see two
