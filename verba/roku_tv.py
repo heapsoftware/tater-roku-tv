@@ -413,7 +413,30 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.3"
+    version = "1.0.4"
+    # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
+    # "turn off the TV" is offered to this tool instead of only device_control,
+    # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
+    # cast_media/mister_remote convention (specific terms, no forced_route).
+    routing_keywords = [
+        "roku",
+        "roku tv",
+        "television",
+        "telly",
+        "tube",
+        "tv",
+        "tv on",
+        "tv off",
+        "turn on the tv",
+        "turn off the tv",
+        "turn on the television",
+        "turn off the television",
+        "turn up the tv",
+        "turn down the tv",
+        "tv volume",
+        "volume on tv",
+    ]
+    tags = ["tv", "roku", "ecp", "media", "power", "volume"]
     usage = '{"function": "roku_tv", "arguments": {"command": "power_on"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
