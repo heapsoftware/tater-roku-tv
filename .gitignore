@@ -1,0 +1,15 @@
+# Public repo ships ONLY four files (per CLAUDE.md):
+#   manifest.json, verba/roku_tv.py, README.md, .gitignore
+# Ignore everything else by default, then re-include exactly those.
+
+/*
+!.gitignore
+!manifest.json
+!README.md
+!verba/
+!verba/roku_tv.py
+
+# Build / interpreter junk, in case it ever lands in the tree.
+**/__pycache__/
+*.py[cod]
+*.egg-info/
