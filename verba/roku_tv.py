@@ -50,6 +50,11 @@ HTTP_TIMEOUT = aiohttp.ClientTimeout(total=5)
 _MAX_VOLUME_STEPS = 30
 _FALLBACK_MODES = ("default", "strict", "single_or_first")
 
+# Empty spare profile rows rendered beyond the saved profiles so the WebUI's
+# "+ Add TV profile" button (which just reveals the next hidden row) can grow
+# the list without re-fetching the settings panel.
+_SPARE_PROFILE_ROWS = 8
+
 # Voice command -> Roku ECP keypress key. Note: the ECP "Play" key is a
 # play/pause *toggle*, so play/pause/stop all map to it (matching the spec).
 _COMMAND_KEY_MAP = {
@@ -409,7 +414,7 @@ class RokuTvVerba(ToolVerba):
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
     version = "1.0.1"
-    usage = '{"function": "roku_tv", "arguments": {"command": "pause"}}'
+    usage = '{"function": "roku_tv", "arguments": {"command": "power_on"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
     verba_dec = (
@@ -425,10 +430,11 @@ class RokuTvVerba(ToolVerba):
     # NOTE: the planning LLM only sees the first ~77 characters of when_to_use
     # plus the single `usage` example, so the lead sentence must cover the main uses.
     when_to_use = (
-        "Controls a Roku TV: playback, mute, volume, HDMI input, power, and playing YouTube. "
-        "Use for 'pause the TV', 'turn the volume up', 'switch to HDMI 2', 'turn off the "
-        "bedroom TV', or 'play lofi radio on YouTube'. Set tv to a configured TV name to "
-        "target it; otherwise the speaking satellite's linked TV is used."
+        "Turn a Roku TV on or off, play/pause, volume, mute, HDMI input, or YouTube. "
+        "Use for 'turn on the TV', 'pause the TV', 'turn the volume up', 'switch to "
+        "HDMI 2', 'turn off the bedroom TV', or 'play lofi radio on YouTube'. Set tv "
+        "to a configured TV name to target it; otherwise the speaking satellite's "
+        "linked TV is used."
     )
     how_to_use = (
         "Pass command (play/pause/stop/mute/unmute/home/back/power_on/power_off/"
@@ -491,8 +497,9 @@ class RokuTvVerba(ToolVerba):
                     "switch_input", "youtube",
                 ],
                 "description": (
-                    "The action to perform. For 'play X on YouTube' use command=youtube "
-                    "with query. volume_up/volume_down adjust volume; switch_input changes HDMI input."
+                    "The action to perform (power_on/power_off turn the TV on/off). For "
+                    "'play X on YouTube' use command=youtube with query. volume_up/"
+                    "volume_down adjust volume; switch_input changes HDMI input."
                 ),
             },
             "query": {
@@ -575,13 +582,30 @@ class RokuTvVerba(ToolVerba):
             }
         )
 
-        # Render enough rows for the existing profiles plus two spare rows to add.
-        row_count = max(len(profiles), 3) + 2
+        # Dynamic rows: a hidden counter (`tv_profile_slots`) says how many rows
+        # are visible. The WebUI's "+ Add TV profile" button raises it (revealing
+        # the next empty row) and each row's Delete button clears that row and
+        # shifts the ones below it up. On save, visible rows collapse into the
+        # canonical `tv_profiles` JSON value (rows with no IP are dropped).
+        slots = max(len(profiles), 1)
+        max_rows = slots + _SPARE_PROFILE_ROWS
+        fields.append(
+            {
+                "key": "tv_profile_slots",
+                "type": "hidden",
+                "label": "TV profile rows",
+                "description": "How many TV profile rows are currently shown.",
+                "value": slots,
+                "default": slots,
+            }
+        )
+
         sat_options = [{"value": "", "label": "(unlinked)"}]
         for sat in satellites:
             sat_options.append({"value": _text(sat.get("selector")), "label": _sat_label(sat)})
-        for idx in range(row_count):
+        for idx in range(max_rows):
             profile = profiles[idx] if idx < len(profiles) else {}
+            visible = {"source_key": "tv_profile_slots", "at_least": idx + 1}
             base = f"profile_{idx}_"
             fields.append(
                 {
@@ -591,6 +615,7 @@ class RokuTvVerba(ToolVerba):
                     "description": "e.g. Great Room (used to name the TV and match rooms).",
                     "value": profile.get("name", ""),
                     "default": "",
+                    "show_when": dict(visible),
                 }
             )
             fields.append(
@@ -601,6 +626,7 @@ class RokuTvVerba(ToolVerba):
                     "description": "The Roku's IP address, e.g. 192.168.1.100.",
                     "value": profile.get("ip", ""),
                     "default": "",
+                    "show_when": dict(visible),
                 }
             )
             fields.append(
@@ -612,16 +638,58 @@ class RokuTvVerba(ToolVerba):
                     "value": profile.get("sat", ""),
                     "default": "",
                     "options": sat_options,
+                    "show_when": dict(visible),
                 }
             )
+            fields.append(
+                {
+                    "key": base + "delete",
+                    "label": f"Delete TV {idx + 1}",
+                    "type": "button",
+                    "description": "Removes this row and moves the TVs below it up.",
+                    "value": "",
+                    "button": {
+                        "action": "delete_slot",
+                        "slot_key": "tv_profile_slots",
+                        "prefix": "profile_",
+                        "keys": ["name", "ip", "sat"],
+                        "index": idx,
+                        "min": 1,
+                    },
+                    "show_when": dict(visible),
+                }
+            )
+        fields.append(
+            {
+                "key": "tv_profiles_add",
+                "label": "+ Add TV profile",
+                "type": "button",
+                "description": "Adds an empty TV profile row below the existing ones.",
+                "value": "",
+                "button": {
+                    "action": "increment_slot",
+                    "slot_key": "tv_profile_slots",
+                    "step": 1,
+                    "min": 1,
+                },
+                # Hidden once the pool of rendered rows is exhausted (re-opening
+                # the settings panel renders new spare rows around a larger list).
+                "show_when": {
+                    "source_key": "tv_profile_slots",
+                    "any_of": [str(n) for n in range(1, max_rows)],
+                },
+            }
+        )
         return fields
 
     def webui_prepare_settings_values(self, values, redis_client=None):
         """Collapse the profile rows into the canonical `tv_profiles` JSON value."""
         values = dict(values or {})
+        # Pure view state from the add/delete row UI; never persisted.
+        values.pop("tv_profile_slots", None)
 
         profiles: List[Dict[str, str]] = []
-        row_keys = [key for key in values if re.fullmatch(r"profile_\d+_(name|ip|sat)", str(key))]
+        row_keys = [key for key in values if re.fullmatch(r"profile_\d+_(name|ip|sat|delete)", str(key))]
         indices = sorted({int(str(key).split("_")[1]) for key in row_keys})
         for idx in indices:
             ip = _text(values.get(f"profile_{idx}_ip"))

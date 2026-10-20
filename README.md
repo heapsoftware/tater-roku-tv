@@ -50,6 +50,31 @@ file is self-contained; it only imports Tater's own modules plus `aiohttp`
 
 Then **enable** the Roku TV verba on the **Verbas → Installed** tab.
 
+## Enabling ECP on the TV
+
+ECP (port 8060) is built into every Roku TV, but it can be switched off. If
+the verba reports the TV as unreachable, check this on the **TV itself**:
+
+1. Open **Settings → System → Control by mobile apps**
+   (on some firmware: *Settings → System → Advanced system settings →
+   Control by mobile apps*).
+2. Make sure **Control by mobile apps** / **Network access** is set to
+   **Default** — that is the setting that allows full ECP control
+   (playback, volume, power, input switching). Choose a less restrictive
+   option than *Limited* if your firmware offers that choice.
+3. Confirm the TV and the Tater host are on the **same network/VLAN** — guest
+   or IoT Wi-Fi networks that isolate clients (AP isolation) will block
+   port 8060.
+
+You can verify reachability from the Tater host before configuring anything:
+
+```sh
+curl -s "http://<TV_IP>:8060/query/device-info" | head -5
+```
+
+If that returns device info XML, ECP is enabled and the verba will work with
+that IP.
+
 ## Configuration
 
 Open the Roku TV verba's **settings** (from the Verbas page). You'll see two
@@ -64,7 +89,12 @@ groups.
 
 ### TV Profiles & SAT Routing
 
-This is where the multi-TV routing is set up. Each **row** is one TV profile:
+This is where the multi-TV routing is set up. The panel starts with **one**
+profile row; use the **+ Add TV profile** button to add as many rows as you
+have TVs, and each row's **Delete** button removes it (the rows below shift
+up, so there are no gaps). The list is saved when you press **Save settings**.
+
+Each **row** is one TV profile:
 
 | Field | Meaning |
 | --- | --- |

@@ -9,9 +9,9 @@
       "entry": "verba/roku_tv.py",
       "name": "Roku TV",
       "description": "Control Roku TVs over the network (playback, volume, mute, HDMI input, power, navigation) and launch YouTube. Each TV profile links to a satellite so a request only reaches that TV.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "portals": ["webui", "discord", "voice_core"],
-      "sha256": "cd2f2cb4297a00f2db7ce89ca7894087da3e41ff0c6626f08e8902a522ac5ebc"
+      "sha256": "15f9050c68bbb789c93fa5ec72252f4a838963dabba5b7d317780087353e8df4"
     }
   ]
 }
