@@ -5,7 +5,7 @@
     {
       "id": "roku_tv",
       "name": "Roku TV",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "min_tater_version": "0.0.0",
       "description": "Control Roku TVs by voice: power, play/pause, volume, mute, HDMI input, and YouTube, routed to the TV linked to the speaking satellite.",
       "portals": [
@@ -24,7 +24,7 @@
         "volume"
       ],
       "entry": "verba/roku_tv.py",
-      "sha256": "35ec8d669cf52c29a2300f82a920846a9c02c06b02dd5d78f2c6fbd9be00d1c0"
+      "sha256": "9c90d26c530d5132ff2d727cdbd961f7a46f2530426bd5d84d9cf6ac9cfaa361"
     }
   ]
 }

@@ -605,7 +605,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.6"
+    version = "1.0.7"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
@@ -624,6 +624,8 @@ class RokuTvVerba(ToolVerba):
         "tv off",
         "turn on the tv",
         "turn off the tv",
+        "power on the tv",
+        "power off the tv",
         "turn on the television",
         "turn off the television",
         "turn up the tv",
@@ -646,10 +648,10 @@ class RokuTvVerba(ToolVerba):
     # window — they are the only routing text a TV phrase can match against
     # (the built-in device_control kernel tool otherwise wins for "turn on ...").
     when_to_use = (
-        "TV commands: 'turn on the TV', 'turn off the TV', 'pause the TV', TV "
-        "volume up/down, mute, HDMI input, or YouTube on a Roku TV. Use for any "
-        "request about a TV or television (e.g. 'volume up on the kitchen TV', "
-        "'switch the great room TV to HDMI 2')."
+        "'turn on the TV', 'power on the TV', 'turn off the TV', 'pause the TV', "
+        "TV volume up/down, mute, HDMI input, or YouTube on a Roku TV. Use for "
+        "any request about a TV or television (e.g. 'volume up on the kitchen "
+        "TV', 'switch the great room TV to HDMI 2')."
     )
     how_to_use = (
         "Pass the user's complete request in query, in their words (e.g. 'turn the "
