@@ -1,17 +1,30 @@
 {
   "schema": 1,
   "name": "Tater Roku TV",
-  "author": "heapsoftware",
-  "description": "Voice control for Roku TVs (ECP) plus a YouTube launcher, with per-satellite TV routing.",
   "verbas": [
     {
       "id": "roku_tv",
-      "entry": "verba/roku_tv.py",
       "name": "Roku TV",
+      "version": "1.0.6",
+      "min_tater_version": "0.0.0",
       "description": "Control Roku TVs by voice: power, play/pause, volume, mute, HDMI input, and YouTube, routed to the TV linked to the speaking satellite.",
-      "version": "1.0.5",
-      "portals": ["webui", "discord", "voice_core"],
-      "sha256": "d33f0e5dcc02ec066534a0e62861303c64e16cd8d0bfe1eebe5aa0589ffacc4b"
+      "portals": [
+        "webui",
+        "discord",
+        "voice_core"
+      ],
+      "notifier": false,
+      "settings_category": null,
+      "tags": [
+        "tv",
+        "roku",
+        "ecp",
+        "media",
+        "power",
+        "volume"
+      ],
+      "entry": "verba/roku_tv.py",
+      "sha256": "35ec8d669cf52c29a2300f82a920846a9c02c06b02dd5d78f2c6fbd9be00d1c0"
     }
   ]
 }

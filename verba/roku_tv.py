@@ -421,6 +421,15 @@ _TV_NAME_RE2 = re.compile(
     r"\bthe\s+([a-z0-9][a-z0-9' .-]{0,39}?)\s+" + _TV_WORD + r"\b",
     re.IGNORECASE,
 )
+# Words the name regex can capture that do not identify a profile: brand
+# mentions ("the Roku TV") and generic pointers ("my TV"). Resolution treats
+# these as "no TV named" and falls through to satellite/room/fallback routing.
+# A profile literally named e.g. "Roku" still wins, because exact name
+# matching happens before this stoplist is consulted (see _resolve_target).
+_TV_NAME_STOPWORDS = frozenset({
+    "roku", "roku tv", "tv", "television", "telly", "tube",
+    "my", "our", "the", "this", "that",
+})
 # The full set of actions the verba can perform; llm output is validated
 # against this set and anything else is discarded.
 _VALID_COMMANDS = frozenset(
@@ -596,11 +605,14 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.5"
+    version = "1.0.6"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
     # cast_media/mister_remote convention (specific terms, no forced_route).
+    # NOTE: as of tater-core v1.7.1 (2026-10-19) the runtime does not read this
+    # attribute at all — the planner routes from the when_to_use line only.
+    # Kept so it activates automatically on a Tater build that supports it.
     routing_keywords = [
         "roku",
         "roku tv",
@@ -620,7 +632,7 @@ class RokuTvVerba(ToolVerba):
         "volume on tv",
     ]
     tags = ["tv", "roku", "ecp", "media", "power", "volume"]
-    usage = '{"function": "roku_tv", "arguments": {"query": "power on the TV"}}'
+    usage = '{"function": "roku_tv", "arguments": {"query": "turn on the TV"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
     verba_dec = (
@@ -629,11 +641,15 @@ class RokuTvVerba(ToolVerba):
     )
     description = verba_dec
     # NOTE: the planning LLM only sees the first ~77 characters of when_to_use
-    # plus the single `usage` example, so the lead sentence must cover the main uses.
+    # plus the single `usage` example, so the lead sentence must cover the main
+    # uses. The quoted trigger phrases are placed to land INSIDE that 77-char
+    # window — they are the only routing text a TV phrase can match against
+    # (the built-in device_control kernel tool otherwise wins for "turn on ...").
     when_to_use = (
-        "Roku TV: power, play/pause, volume, mute, HDMI input, or YouTube. Use for "
-        "'turn on the TV', 'pause the TV', 'volume up on the kitchen TV', 'switch to "
-        "HDMI 2', 'turn off the bedroom TV', or 'play lofi radio on YouTube'."
+        "TV commands: 'turn on the TV', 'turn off the TV', 'pause the TV', TV "
+        "volume up/down, mute, HDMI input, or YouTube on a Roku TV. Use for any "
+        "request about a TV or television (e.g. 'volume up on the kitchen TV', "
+        "'switch the great room TV to HDMI 2')."
     )
     how_to_use = (
         "Pass the user's complete request in query, in their words (e.g. 'turn the "
@@ -918,12 +934,17 @@ class RokuTvVerba(ToolVerba):
             if match:
                 idx, profile = match
                 return {"ip": profile["ip"], "label": _effective_name(profile, idx)}, None
-            names = ", ".join(_effective_name(p, i) for i, p in enumerate(profiles))
-            return None, action_failure(
-                code="unknown_tv",
-                message=f"No TV named {tv_name} is configured.",
-                say_hint=f"That TV isn't configured. The configured TVs are: {names}. Ask which one to use.",
-            )
+            # A brand / generic word ("the Roku TV", "my TV") that matches no
+            # profile is not really a TV name — fall through to satellite /
+            # room / fallback routing below instead of erroring. A genuinely
+            # unknown name (e.g. "garage") still fails and lists the options.
+            if tv_name.lower() not in _TV_NAME_STOPWORDS:
+                names = ", ".join(_effective_name(p, i) for i, p in enumerate(profiles))
+                return None, action_failure(
+                    code="unknown_tv",
+                    message=f"No TV named {tv_name} is configured.",
+                    say_hint=f"That TV isn't configured. The configured TVs are: {names}. Ask which one to use.",
+                )
 
         # 2) Route by the requesting satellite (SAT), then by its room/area.
         req_sat = _origin_text(origin, ("satellite_selector", "device_id"))
