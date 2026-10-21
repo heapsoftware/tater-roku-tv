@@ -605,7 +605,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.7"
+    version = "1.0.8"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
@@ -634,24 +634,39 @@ class RokuTvVerba(ToolVerba):
         "volume on tv",
     ]
     tags = ["tv", "roku", "ecp", "media", "power", "volume"]
-    usage = '{"function": "roku_tv", "arguments": {"query": "turn on the TV"}}'
+    # The planner sees this example in full: make it a realistic, complete
+    # natural-language request (Tater dev, 2026-10-21), with a named TV so the
+    # model learns room-specific TV requests come here too.
+    usage = '{"function": "roku_tv", "arguments": {"query": "turn on the great room TV"}}'
     platforms = ["webui", "discord", "voice_core"]
     notifier = False
+    # Shop / human-facing description (WebUI verba list + Verba shop read
+    # `verba_dec` first) — what a person sees when browsing for tools.
     verba_dec = (
-        "Control Roku TVs by voice: power, play/pause, volume, mute, HDMI input, and "
-        "YouTube, routed to the TV linked to the speaking satellite."
+        "Control Roku TVs by voice over the local network (ECP): power on/off, "
+        "play/pause, volume, mute, HDMI input, home/back, and YouTube launching. "
+        "TVs are configured as profiles (name, IP, linked satellite) so each "
+        "room's voice satellite only controls its own TV."
     )
-    description = verba_dec
-    # NOTE: the planning LLM only sees the first ~77 characters of when_to_use
-    # plus the single `usage` example, so the lead sentence must cover the main
-    # uses. The quoted trigger phrases are placed to land INSIDE that 77-char
-    # window — they are the only routing text a TV phrase can match against
-    # (the built-in device_control kernel tool otherwise wins for "turn on ...").
+    # AI-facing text: plain natural language about what this tool is for
+    # (planner fallback chain is when_to_use -> description -> verba_dec;
+    # newer builds read `description` directly). Tater dev (2026-10-21):
+    # keep it a natural-language purpose statement — e.g. "Use to control the
+    # smart TV" — no shop copy, no list of quoted trigger phrases.
+    # One plain verb-first sentence naming the target, in the cast_media
+    # convention ("Play audio and video media files on a named TV or Google
+    # Cast device.") — bare-verb style (no "Use to"), purpose statement
+    # complete within the planner's ~77-char window.
+    description = (
+        "Control a Roku TV: power on/off, play/pause, volume, mute, HDMI "
+        "input, and YouTube."
+    )
     when_to_use = (
-        "'turn on the TV', 'power on the TV', 'turn off the TV', 'pause the TV', "
-        "TV volume up/down, mute, HDMI input, or YouTube on a Roku TV. Use for "
-        "any request about a TV or television (e.g. 'volume up on the kitchen "
-        "TV', 'switch the great room TV to HDMI 2')."
+        "Use when the user asks to do anything with the TV or television — "
+        "turn it on or off, play or pause, volume up or down, mute, switch "
+        "HDMI input, go to the home screen, or play a YouTube video on it. "
+        "Handles requests like 'turn on the TV' or 'turn the volume up on the "
+        "great room TV' and picks the right TV automatically."
     )
     how_to_use = (
         "Pass the user's complete request in query, in their words (e.g. 'turn the "

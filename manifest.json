@@ -5,9 +5,9 @@
     {
       "id": "roku_tv",
       "name": "Roku TV",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "min_tater_version": "0.0.0",
-      "description": "Control Roku TVs by voice: power, play/pause, volume, mute, HDMI input, and YouTube, routed to the TV linked to the speaking satellite.",
+      "description": "Control Roku TVs by voice over the local network (ECP): power on/off, play/pause, volume, mute, HDMI input, home/back, and YouTube launching. TVs are configured as profiles (name, IP, linked satellite) so each room's voice satellite only controls its own TV.",
       "portals": [
         "webui",
         "discord",
@@ -24,7 +24,7 @@
         "volume"
       ],
       "entry": "verba/roku_tv.py",
-      "sha256": "9c90d26c530d5132ff2d727cdbd961f7a46f2530426bd5d84d9cf6ac9cfaa361"
+      "sha256": "a07bf4f3ececb8b8c8ef85e2b6b8ad33f394ad2faee0e9126e791638358ed720"
     }
   ]
 }
