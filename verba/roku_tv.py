@@ -88,6 +88,13 @@ _COMMAND_PHRASE = {
 }
 
 
+def _tv_phrase_label(label: str) -> str:
+    """Labels from Tater's registry often end in "TV"; don't say "the Great Room TV TV"."""
+    name = str(label or "").strip()
+    cleaned = re.sub(r"\s*tv\s*$", "", name, flags=re.IGNORECASE).strip()
+    return cleaned or name
+
+
 class ResolverMethod(str, Enum):
     YTDLP = "YTDLP"
     SEARCH_PYTHON = "SEARCH_PYTHON"
@@ -605,7 +612,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.8"
+    version = "1.0.9"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
@@ -1098,7 +1105,7 @@ class RokuTvVerba(ToolVerba):
         if failure is not None:
             return failure
         client = RokuClient(target["ip"])
-        label = target["label"]
+        label = _tv_phrase_label(target["label"])
 
         if command == "youtube":
             if not query:
@@ -1178,9 +1185,13 @@ class RokuTvVerba(ToolVerba):
             )
         if await client.send_keypress(key):
             phrase = _COMMAND_PHRASE.get(command, command)
+            # State terms, not fancy phrasing: "Turned on" / "Turned off" — the
+            # final-answer renderer repeats what this summary says, so simple
+            # words here ("on") beat words like "active".
+            capitalized = phrase[:1].upper() + phrase[1:]
             return action_success(
                 facts={"tv": label, "command": command},
-                summary_for_user=f"{phrase.title()} the {label} TV.",
+                summary_for_user=f"{capitalized} the {label} TV.",
                 say_hint=f"Confirm you {phrase} the {label} TV.",
             )
         return action_failure(

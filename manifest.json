@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "name": "Tater Roku TV",
+  "name": "Tater Verbas",
   "verbas": [
     {
       "id": "roku_tv",
       "name": "Roku TV",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "min_tater_version": "0.0.0",
       "description": "Control Roku TVs by voice over the local network (ECP): power on/off, play/pause, volume, mute, HDMI input, home/back, and YouTube launching. TVs are configured as profiles (name, IP, linked satellite) so each room's voice satellite only controls its own TV.",
       "portals": [
@@ -24,7 +24,7 @@
         "volume"
       ],
       "entry": "verba/roku_tv.py",
-      "sha256": "a07bf4f3ececb8b8c8ef85e2b6b8ad33f394ad2faee0e9126e791638358ed720"
+      "sha256": "371d83949d05b3b5a43f2ab78d4f4f50bc176d459a209264fcccc84bc82a77a6"
     }
   ]
 }
