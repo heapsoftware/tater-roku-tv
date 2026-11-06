@@ -437,6 +437,20 @@ _TV_NAME_STOPWORDS = frozenset({
     "roku", "roku tv", "tv", "television", "telly", "tube",
     "my", "our", "the", "this", "that",
 })
+# The name regexes are greedy enough to grab part of an action phrase as a
+# "TV name": "lower the volume of the TV" captures "volume of the", "turn off
+# the volume on the TV" captures "volume on the". Those are not names — strip
+# filler/action words too; if nothing meaningful remains there is no name and
+# routing falls through to the satellite / room / configured fallback instead
+# of erroring with unknown_tv.
+_NAME_JUNK_RE = re.compile(
+    r"\b(?:of|for|to|at|in|on|the|my|our|that|this|a|an|"
+    r"volume|sound|audio|channel|input|power|mute|unmute|"
+    r"up|down|higher|lower|louder|quieter|softer|raise|increase|reduce|decrease|"
+    r"turn|set|please|just|can|could|would|will|you|"
+    + _TV_WORD + r")\b",
+    flags=re.IGNORECASE,
+)
 # The full set of actions the verba can perform; llm output is validated
 # against this set and anything else is discarded.
 _VALID_COMMANDS = frozenset(
@@ -474,7 +488,9 @@ def _tv_name_from(text: str) -> str:
         match = regex.search(low)
         if match:
             name = _squash(match.group(1))
-            return re.sub(r"^(?:the|on|at|in)\s+", "", name)
+            name = re.sub(r"^(?:the|on|at|in)\s+", "", name)
+            cleaned = _squash(_NAME_JUNK_RE.sub(" ", name))
+            return cleaned if cleaned else ""
     return ""
 
 
@@ -612,7 +628,7 @@ class RokuTvVerba(ToolVerba):
     name = "roku_tv"
     verba_name = "Roku TV"
     pretty_name = "Roku TV"
-    version = "1.0.9"
+    version = "1.0.10"
     # Deterministic pre-routing (newer Tater builds): claim TV-specific words so
     # "turn off the TV" is offered to this tool instead of only device_control,
     # which claims the generic "turn on"/"turn off" keywords. Phrases mirror the
